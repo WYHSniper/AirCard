@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import plistlib
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 CARD_ID = re.compile(r"[-A-Za-z0-9_+=]{20,64}\Z")
@@ -47,15 +47,37 @@ def read_limited(path: Path) -> bytes:
     return data
 
 
-def card(identifier, name, source, activation_id=None, suffix=None, suffix_kind=None):
+def clean_suffix(value):
+    return value.strip() if isinstance(value, str) and SUFFIX.fullmatch(value.strip()) else None
+
+
+def added_date(value):
+    """Wallet stores the add date as an NSDate (seconds from 2001-01-01 UTC)."""
+    seconds = value.get("NS.time") if isinstance(value, dict) else None
+    if not isinstance(seconds, (int, float)) or abs(seconds) > 3e10:
+        return None
+    try:
+        return (datetime(2001, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)).date().isoformat()
+    except (OverflowError, ValueError):
+        return None
+
+
+def card(identifier, name, source, activation_id=None, suffix=None, suffix_kind=None, device_suffix=None, added_at=None):
     if not isinstance(identifier, str) or not CARD_ID.fullmatch(identifier):
         return None
     result = {"id": identifier, "name": name.strip()[:200] if isinstance(name, str) and name.strip() else "Unnamed card", "source": source}
     if isinstance(activation_id, str) and re.fullmatch(r"[A-Fa-f0-9]{10,64}", activation_id):
         result["activationID"] = activation_id.upper()
-    if isinstance(suffix, str) and SUFFIX.fullmatch(suffix.strip()):
-        result["suffix"] = suffix.strip()
+    if suffix:
+        result["suffix"] = suffix
         result["suffixKind"] = suffix_kind
+    # Only read when two rows still look alike: a second, independent ending and
+    # the date the card was added. Both are per-card, so one of them separates
+    # two cards that share a product name and an account ending.
+    if device_suffix and device_suffix != suffix:
+        result["deviceSuffix"] = device_suffix
+    if added_at:
+        result["addedAt"] = added_at
     return result
 
 
@@ -75,11 +97,12 @@ def payment_card(data):
     # real card's last digits; fall back to the device token suffix, which is
     # still stable per card, when Wallet has no account suffix (Apple Cash,
     # transit, ID passes).
-    suffix, suffix_kind = data.get("primaryAccountNumberSuffix"), "account"
-    if not isinstance(suffix, str) or not suffix.strip():
-        suffix = application.get("DPANSuffix") if isinstance(application, dict) else None
-        suffix_kind = "device"
-    return card(data.get("passID"), data.get("displayName") or data.get("organizationName"), "payment", activation_id, suffix, suffix_kind)
+    device_suffix = clean_suffix(application.get("DPANSuffix")) if isinstance(application, dict) else None
+    suffix, suffix_kind = clean_suffix(data.get("primaryAccountNumberSuffix")), "account"
+    if not suffix:
+        suffix, suffix_kind = device_suffix, "device"
+    return card(data.get("passID"), data.get("displayName") or data.get("organizationName"), "payment",
+                activation_id, suffix, suffix_kind, device_suffix, added_date(data.get("ingestedDate")))
 
 
 def build_catalog(root: Path, confirmed_ids: list[str], product: str) -> dict:

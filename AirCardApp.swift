@@ -72,6 +72,8 @@ struct CardItem: Identifiable, Hashable {
     /// same type apart in the list.
     var accountSuffix: String? = nil
     var suffixKind: String? = nil
+    var deviceSuffix: String? = nil
+    var addedAt: String? = nil
     var confirmed: Bool = false
 
     init(id: String, isSelected: Bool = true, customImageURL: URL? = nil, customImage: NSImage? = nil, displayName: String? = nil, confirmed: Bool = false) {
@@ -86,15 +88,19 @@ struct CardItem: Identifiable, Hashable {
 
     init(id: String, isSelected: Bool = true, cached: WalletCachedCard?, confirmed: Bool = false) {
         self.init(id: id, isSelected: isSelected, displayName: cached?.name, confirmed: confirmed)
-        self.accountSuffix = cached?.suffix
-        self.suffixKind = cached?.suffixKind
+        self.adopt(cached)
     }
 
     mutating func adopt(_ cached: WalletCachedCard?) {
         displayName = cached?.name
         accountSuffix = cached?.suffix
         suffixKind = cached?.suffixKind
+        deviceSuffix = cached?.deviceSuffix
+        addedAt = cached?.addedAt
     }
+
+    /// What the list shows for this card before any tiebreaker is added.
+    var identityKey: String { (displayName ?? "") + "|" + (accountSuffix ?? "") }
 
     /// Shown under the product name, e.g. "•••• 1234".
     var suffixLabel: String? { CardSuffix.label(accountSuffix) }
@@ -597,6 +603,12 @@ class AppViewModel: ObservableObject {
     var confirmedCardIDs: Set<String> { Set(cards.filter(\.confirmed).map(\.id)) }
     var currentVerifiedCardIDs: Set<String> { currentScanIDs.union(currentPreloadedIDs) }
     var currentVerifiedCards: [CardItem] { cards.filter { currentVerifiedCardIDs.contains($0.id) } }
+    /// Cards the list cannot tell apart on name + card ending alone.
+    var ambiguousCardIDs: Set<String> {
+        let counts = Dictionary(grouping: currentVerifiedCards, by: \.identityKey).filter { $0.value.count > 1 }
+        return Set(counts.values.flatMap { $0 }.map(\.id))
+    }
+
     var pendingPaymentCards: [WalletCachedCard] { walletCatalog.pending(confirmedIDs: confirmedCardIDs, source: "payment") }
     var pendingMembershipCards: [WalletCachedCard] { walletCatalog.pending(confirmedIDs: confirmedCardIDs, source: "membership") }
 
@@ -1885,6 +1897,8 @@ struct WalletCardView: View {
     @Binding var card: CardItem
     let cardIndex: Int
     var isFlashed: Bool = false
+    /// Set when another row shows the same name and card ending.
+    var isAmbiguous: Bool = false
     let onPickImage: () -> Void
     let onClearImage: () -> Void
     let onDelete: () -> Void
@@ -2060,6 +2074,14 @@ struct WalletCardView: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(.primary)
                         .help(CardSuffix.help(card.suffixKind))
+                    if isAmbiguous {
+                        ForEach(CardSuffix.tiebreakers(card), id: \.self) { line in
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.orange)
+                        }
+                        .help("Another card shows the same name and ending. These come from the Wallet cache and differ per card.")
+                    }
                 } else if card.displayName != nil {
                     Text("No card ending in the Mac cache")
                         .font(.caption2)
@@ -2263,6 +2285,7 @@ struct ContentView: View {
                             columns: [GridItem(.adaptive(minimum: 310, maximum: 360), spacing: 20)],
                             spacing: 20
                         ) {
+                            let ambiguousIDs = vm.ambiguousCardIDs
                             ForEach(Array(vm.currentVerifiedCards.enumerated()), id: \.element.id) { visibleIndex, verifiedCard in
                                 let cardID = verifiedCard.id
                                 let deviceID = vm.device?.udid
@@ -2270,6 +2293,7 @@ struct ContentView: View {
                                     card: walletCardBinding(in: $vm.cards, snapshot: verifiedCard),
                                     cardIndex: visibleIndex,
                                     isFlashed: vm.isSkinFlashed(verifiedCard),
+                                    isAmbiguous: ambiguousIDs.contains(cardID),
                                     onPickImage: { openCardImagePicker(for: cardID) },
                                     onClearImage: { vm.clearCardImage(for: cardID) },
                                     onDelete: { vm.deleteCard(id: cardID) },

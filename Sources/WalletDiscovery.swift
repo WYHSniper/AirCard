@@ -10,14 +10,20 @@ struct WalletCachedCard: Codable, Identifiable {
     /// what separates one "Platinum Card" from the next.
     let suffix: String?
     let suffixKind: String?
+    /// Device Account Number ending, and the date the card was added. Read only
+    /// when name + account ending still leave two rows identical.
+    let deviceSuffix: String?
+    let addedAt: String?
 
-    init(id: String, name: String, source: String, activationID: String? = nil, suffix: String? = nil, suffixKind: String? = nil) {
+    init(id: String, name: String, source: String, activationID: String? = nil, suffix: String? = nil, suffixKind: String? = nil, deviceSuffix: String? = nil, addedAt: String? = nil) {
         self.id = id
         self.name = name
         self.source = source
         self.activationID = activationID
         self.suffix = suffix
         self.suffixKind = suffixKind
+        self.deviceSuffix = deviceSuffix
+        self.addedAt = addedAt
     }
 }
 
@@ -28,8 +34,20 @@ enum CardSuffix {
     }
 
     static func help(_ kind: String?) -> String {
-        kind == "device" ? "Device token ending — this card's Wallet cache reports no account ending."
-                         : "Card account ending, from this Mac's Wallet cache."
+        kind == "device" ? "Device Account Number ending — Wallet reports no card number ending for this card."
+                         : "Card number ending, from this Mac's Wallet cache."
+    }
+
+    /// Extra lines for rows that still read identically after name + ending.
+    /// Two cards can legitimately share a product name and the last four of the
+    /// card number; the device ending and the add date are independent of both.
+    static func tiebreakers(_ card: CardItem) -> [String] {
+        var lines: [String] = []
+        if let device = card.deviceSuffix, device != card.accountSuffix {
+            lines.append("Device •••• " + device)
+        }
+        if let added = card.addedAt { lines.append("Added " + added) }
+        return lines
     }
 }
 

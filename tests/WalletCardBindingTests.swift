@@ -74,6 +74,26 @@ struct WalletCardBindingTests {
         platA.adopt(catalog.card(for: "plat-b"))
         precondition(platA.suffixLabel == "•••• 5678" && platA.id == "plat-a")
 
+        // Two cards sharing BOTH name and card ending fall back to independent
+        // identifiers; rows that are already distinct show no extra noise.
+        let collided = WalletCatalog(
+            paymentStatus: "matched",
+            payments: [
+                WalletCachedCard(id: "x", name: "Platinum Card", source: "payment", suffix: "1234", suffixKind: "account", deviceSuffix: "4444", addedAt: "2025-01-01"),
+                WalletCachedCard(id: "y", name: "Platinum Card", source: "payment", suffix: "1234", suffixKind: "account", deviceSuffix: "7777", addedAt: "2026-01-01"),
+            ],
+            memberships: [], warnings: [], cacheUpdatedAt: nil)
+        let x = CardItem(id: "x", cached: collided.card(for: "x"), confirmed: true)
+        let y = CardItem(id: "y", cached: collided.card(for: "y"), confirmed: true)
+        precondition(x.identityKey == y.identityKey, "This pair is the case tiebreakers exist for")
+        precondition(CardSuffix.tiebreakers(x) != CardSuffix.tiebreakers(y),
+                     "Cards sharing name and ending must still differ")
+        precondition(CardSuffix.tiebreakers(x) == ["Device •••• 4444", "Added 2025-01-01"])
+        precondition(platB.identityKey != x.identityKey)
+        // A card whose only ending IS the device ending must not repeat it.
+        let transit = CardItem(id: "t", cached: WalletCachedCard(id: "t", name: "Transit", source: "payment", suffix: "4321", suffixKind: "device", deviceSuffix: "4321"))
+        precondition(CardSuffix.tiebreakers(transit).isEmpty)
+
         print("PASS: retained rows, single deletion, clear all, late row creation, delayed image writes, scanner append, same-name card endings")
     }
 }

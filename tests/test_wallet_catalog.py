@@ -100,6 +100,37 @@ class WalletCatalogTests(unittest.TestCase):
         write_archive(self.root, [{'modelIdentifier': 'iPhone16,1', 'remotePaymentInstruments': instruments}])
         self.assertNotIn('suffix', build_catalog(self.root, [A], 'iPhone16,1')['payments'][0])
 
+    def test_identical_name_and_ending_still_carry_independent_tiebreakers(self):
+        instruments = [
+            {'passID': A, 'displayName': 'Platinum Card', 'primaryAccountNumberSuffix': '1234',
+             'ingestedDate': {'NS.time': 757382400.0},
+             'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000001', 'DPANSuffix': '4444'}},
+            {'passID': B, 'displayName': 'Platinum Card', 'primaryAccountNumberSuffix': '1234',
+             'ingestedDate': {'NS.time': 788918400.0},
+             'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000002', 'DPANSuffix': '7777'}},
+        ]
+        write_archive(self.root, [{'modelIdentifier': 'iPhone16,1', 'remotePaymentInstruments': instruments}])
+        payments = build_catalog(self.root, [A], 'iPhone16,1')['payments']
+        self.assertEqual([c['suffix'] for c in payments], ['1234', '1234'])
+        self.assertEqual([c['deviceSuffix'] for c in payments], ['4444', '7777'])
+        self.assertEqual([c['addedAt'] for c in payments], ['2025-01-01', '2026-01-01'])
+
+    def test_device_suffix_is_not_repeated_when_it_is_already_the_shown_ending(self):
+        instruments = [{'passID': A, 'displayName': 'Transit',
+                        'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000001', 'DPANSuffix': '4321'}}]
+        write_archive(self.root, [{'modelIdentifier': 'iPhone16,1', 'remotePaymentInstruments': instruments}])
+        card = build_catalog(self.root, [A], 'iPhone16,1')['payments'][0]
+        self.assertEqual(card['suffix'], '4321')
+        self.assertNotIn('deviceSuffix', card)
+
+    def test_unusable_added_date_is_dropped(self):
+        for stamp in [{'NS.time': 'soon'}, {'NS.time': 1e30}, 'not-a-date']:
+            instruments = [{'passID': A, 'displayName': 'Card', 'primaryAccountNumberSuffix': '1234',
+                            'ingestedDate': stamp,
+                            'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000001'}}]
+            write_archive(self.root, [{'modelIdentifier': 'iPhone16,1', 'remotePaymentInstruments': instruments}])
+            self.assertNotIn('addedAt', build_catalog(self.root, [A], 'iPhone16,1')['payments'][0])
+
     def test_corrupt_cache_keeps_diagnostics_available(self):
         (self.root / 'RemoteDevices.archive').write_bytes(b'bad plist')
         result = build_catalog(self.root, [A], 'iPhone16,1')
