@@ -105,6 +105,11 @@ struct CardItem: Identifiable, Hashable {
     /// Shown under the product name, e.g. "•••• 1234".
     var suffixLabel: String? { CardSuffix.label(accountSuffix) }
 
+    /// The device ending and add date, rendered under the card ending.
+    var tiebreakerLines: [String] {
+        CardSuffix.tiebreakers(deviceSuffix: deviceSuffix, accountSuffix: accountSuffix, addedAt: addedAt)
+    }
+
     static func signature(of url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -590,6 +595,8 @@ class AppViewModel: ObservableObject {
         didSet { if !isLoadingCards { saveCards() } }
     }
     @Published var walletCatalog = WalletCatalog.empty
+    /// False until the device itself has sent a log line on this scan.
+    @Published var scannerReceivedLogData = false
     @Published var isReadingWalletCache = false
     @Published var scannerMessage = "Open Wallet and scan cards to verify this iPhone's saved entries."
     @Published var currentScanIDs: Set<String> = []
@@ -657,6 +664,21 @@ class AppViewModel: ObservableObject {
         logs.append("[\(timestamp)] \(message)")
     }
     
+    /// Kills `device_helper syslog` processes left over from an earlier run.
+    /// Scoped to this bundle's own helper and this device, so nothing else on
+    /// the Mac is touched.
+    nonisolated static func reapOrphanedLogHelpers(helper: URL, udid: String) {
+        guard !udid.isEmpty else { return }
+        let escaped = NSRegularExpression.escapedPattern(for: "\(helper.path) syslog \(udid)")
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-f", "^" + escaped + "$"]
+        pkill.standardOutput = FileHandle.nullDevice
+        pkill.standardError = FileHandle.nullDevice
+        try? pkill.run()
+        pkill.waitUntilExit()
+    }
+
     nonisolated private static var pythonExecutableURL: URL {
         let candidates = [
             "/usr/bin/python3",
@@ -1223,10 +1245,16 @@ class AppViewModel: ObservableObject {
             scannerMessage = "No iPhone connected. Connect, unlock and trust this Mac, then use Reconnect."
             return
         }
+        // One syslog client per device. A helper orphaned by a crashed or
+        // force-quit AirCard keeps holding the stream, and the next scan then
+        // attaches and receives nothing at all — no error, no cards.
+        AppViewModel.reapOrphanedLogHelpers(helper: deviceHelper, udid: udid)
+
         isScanningCards = true
         currentScanIDs = []
         currentPreloadedIDs = []
         pendingActivationIDs = []
+        scannerReceivedLogData = false
         scannerMessage = "Connecting to the iPhone log stream…"
         statusText = "Double-click Side button, pass Face ID, then tap your card..."
         log("Started scanning device logs for cards...")
@@ -1252,10 +1280,20 @@ class AppViewModel: ObservableObject {
             return
         }
         
+        // A starved stream looks identical to a quiet one from the UI, so say so
+        // rather than leaving "Scanning…" on screen indefinitely.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard let self, self.scanProcess === proc, !self.scannerReceivedLogData else { return }
+            self.scannerMessage = "No log data from this iPhone after 10s. Another copy of AirCard, or a leftover scanner, may be holding its log stream. Stop scanning, quit other copies, then scan again."
+            self.log("Scanner received no device log data within 10s — the log stream may be held by another process.")
+        }
+
         Task.detached {
             do {
                 let handle = pipe.fileHandleForReading
                 var buffer = Data()
+                var sawDeviceOutput = false
                 
                 // Drain the pipe through EOF, including the last buffered record
                 // when the helper exits. isRunning can become false too early.
@@ -1273,6 +1311,13 @@ class AppViewModel: ObservableObject {
                         buffer.removeSubrange(buffer.startIndex..<newlineRange.upperBound)
                         
                         guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                        if !sawDeviceOutput && !line.hasPrefix("AirCard scanner: ") {
+                            sawDeviceOutput = true
+                            await MainActor.run {
+                                guard self.scanProcess === proc else { return }
+                                self.scannerReceivedLogData = true
+                            }
+                        }
                         if line.hasPrefix("AirCard scanner: ") {
                             await MainActor.run {
                                 guard self.scanProcess === proc else { return }
@@ -2074,7 +2119,7 @@ struct WalletCardView: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(.primary)
                         .help(CardSuffix.help(card.suffixKind))
-                    ForEach(CardSuffix.tiebreakers(card), id: \.self) { line in
+                    ForEach(card.tiebreakerLines, id: \.self) { line in
                         Text(line)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(isAmbiguous ? .orange : .secondary)

@@ -86,17 +86,17 @@ struct WalletCardBindingTests {
         let x = CardItem(id: "x", cached: collided.card(for: "x"), confirmed: true)
         let y = CardItem(id: "y", cached: collided.card(for: "y"), confirmed: true)
         precondition(x.identityKey == y.identityKey, "This pair is the case tiebreakers exist for")
-        precondition(CardSuffix.tiebreakers(x) != CardSuffix.tiebreakers(y),
+        precondition(x.tiebreakerLines != y.tiebreakerLines,
                      "Cards sharing name and ending must still differ")
-        precondition(CardSuffix.tiebreakers(x) == ["Device •••• 4444", "Added 2025-01-01"])
+        precondition(x.tiebreakerLines == ["Device •••• 4444", "Added 2025-01-01"])
         // Distinct rows carry the same two lines; only their colour differs.
-        precondition(CardSuffix.tiebreakers(platB).isEmpty, "No cache data means no invented lines")
+        precondition(platB.tiebreakerLines.isEmpty, "No cache data means no invented lines")
         let dated = CardItem(id: "d", cached: WalletCachedCard(id: "d", name: "Card", source: "payment", suffix: "1234", suffixKind: "account", addedAt: "2026-02-02"))
-        precondition(CardSuffix.tiebreakers(dated) == ["Added 2026-02-02"])
+        precondition(dated.tiebreakerLines == ["Added 2026-02-02"])
         precondition(platB.identityKey != x.identityKey)
         // A card whose only ending IS the device ending must not repeat it.
         let transit = CardItem(id: "t", cached: WalletCachedCard(id: "t", name: "Transit", source: "payment", suffix: "4321", suffixKind: "device", deviceSuffix: "4321"))
-        precondition(CardSuffix.tiebreakers(transit).isEmpty)
+        precondition(transit.tiebreakerLines.isEmpty)
 
         print("PASS: retained rows, single deletion, clear all, late row creation, delayed image writes, scanner append, same-name card endings")
     }

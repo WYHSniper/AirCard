@@ -17,6 +17,13 @@ struct WalletDiscoveryTests {
         let batchedIOS27Line = "nfcd: passIDs[InSession]: {(\(sessionList))} passIDs[global]: {(\"\(a)\")}"
         precondition(WalletScanParser.cardIDs(in: batchedIOS27Line) == sessionCards)
         precondition(WalletScanParser.cardIDs(in: "nfcd: passIDs[global]: {(\"\(a)\")}").isEmpty)
+        // iOS 26 formats, taken from a real capture on iOS 26.6.2.
+        let dashboard = "Passbook(PassKitUI): Dashboard loading (0xc5b496800): \(a) - m:NO, sm:YES, em:NO, b:YES"
+        precondition(WalletScanParser.cardIDs(in: dashboard) == [a])
+        precondition(WalletScanParser.cardIDs(in: "Dashboard loading (0xc5b496800): <private> - m:NO").isEmpty)
+        let limited = "nfcd: -[NFExpressModeManager _updateExpressConfigWithInSessionSet:globalSet:]:1932 _inSessionLimitedPassIDs={(     \"\(c)\" )}, _globalLimitedPassIDs={(     \"\(a)\" )}, hasActiveSession=1,"
+        precondition(WalletScanParser.cardIDs(in: limited) == [c], "Only the in-session list is evidence of this scan")
+        precondition(WalletScanParser.cardIDs(in: "nfcd: _inSessionLimitedPassIDs=(null), _globalLimitedPassIDs=(null),").isEmpty)
         precondition(WalletScanParser.cardIDs(in: "Wallet /Passes/Cards/\(a)/FrontFace") == [a])
         precondition(WalletScanParser.cardIDs(in: "PDCardFileManager: writing card \(b)") == [b])
         precondition(WalletScanParser.cardIDs(in: "PDPassLibrary: wrote pass \(a)") == [a])

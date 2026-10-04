@@ -42,12 +42,12 @@ enum CardSuffix {
     /// Two cards can legitimately share a product name and the last four of the
     /// card number; the device ending and the add date are independent of both,
     /// and the row turns these orange when such a collision actually happens.
-    static func tiebreakers(_ card: CardItem) -> [String] {
+    static func tiebreakers(deviceSuffix: String?, accountSuffix: String?, addedAt: String?) -> [String] {
         var lines: [String] = []
-        if let device = card.deviceSuffix, device != card.accountSuffix {
+        if let device = deviceSuffix, device != accountSuffix {
             lines.append("Device •••• " + device)
         }
-        if let added = card.addedAt { lines.append("Added " + added) }
+        if let added = addedAt { lines.append("Added " + added) }
         return lines
     }
 }
@@ -110,9 +110,13 @@ enum WalletScanParser {
         try! NSRegularExpression(pattern: #"PDPassLibrary:\s*wrote pass\s+([-A-Za-z0-9_+=]{20,64})(?=[\s\"'\),]|$)"#, options: .caseInsensitive),
         try! NSRegularExpression(pattern: #"VerificationCheck\.([-A-Za-z0-9_+=]{20,64})(?=[\s\"'\),]|$)"#, options: .caseInsensitive),
         try! NSRegularExpression(pattern: #"selected pass uniqueID\s*:\s*\"?([-A-Za-z0-9_+=]{20,64})\"?"#, options: .caseInsensitive),
+        // iOS 26 stopped logging the pass file paths this parser was built on.
+        // PassKitUI names the pass it is rendering instead, which is the one
+        // per-pass signal still emitted when a card is opened or tapped.
+        try! NSRegularExpression(pattern: #"Dashboard loading\s*\([^)]*\)\s*:\s*([-A-Za-z0-9_+=]{20,64})\s*-"#, options: .caseInsensitive),
     ]
     static let inSessionList = try! NSRegularExpression(
-        pattern: #"passIDs\[InSession\]\s*:\s*(?:\{\s*)?\(([^)]*)\)"#,
+        pattern: #"(?:passIDs\[InSession\]|_inSessionLimitedPassIDs)\s*[:=]\s*(?:\{\s*)?\(([^)]*)\)"#,
         options: .caseInsensitive
     )
     static let cardID = try! NSRegularExpression(pattern: #"(?<![-A-Za-z0-9_+=])[-A-Za-z0-9_+=]{20,64}(?![-A-Za-z0-9_+=])"#)
