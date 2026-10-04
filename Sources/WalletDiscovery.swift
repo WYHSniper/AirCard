@@ -5,12 +5,31 @@ struct WalletCachedCard: Codable, Identifiable {
     let name: String
     let source: String
     let activationID: String?
+    /// Last digits of the account, or of the device token when Wallet withholds
+    /// the account suffix. Several cards can share a product name, so this is
+    /// what separates one "Platinum Card" from the next.
+    let suffix: String?
+    let suffixKind: String?
 
-    init(id: String, name: String, source: String, activationID: String? = nil) {
+    init(id: String, name: String, source: String, activationID: String? = nil, suffix: String? = nil, suffixKind: String? = nil) {
         self.id = id
         self.name = name
         self.source = source
         self.activationID = activationID
+        self.suffix = suffix
+        self.suffixKind = suffixKind
+    }
+}
+
+enum CardSuffix {
+    static func label(_ suffix: String?) -> String? {
+        guard let suffix, !suffix.isEmpty else { return nil }
+        return "•••• " + suffix
+    }
+
+    static func help(_ kind: String?) -> String {
+        kind == "device" ? "Device token ending — this card's Wallet cache reports no account ending."
+                         : "Card account ending, from this Mac's Wallet cache."
     }
 }
 
@@ -23,8 +42,10 @@ struct WalletCatalog: Codable {
 
     static let empty = WalletCatalog(paymentStatus: "unavailable", payments: [], memberships: [], warnings: [], cacheUpdatedAt: nil)
 
-    func name(for id: String) -> String? {
-        (payments + memberships).first(where: { $0.id == id })?.name
+    func name(for id: String) -> String? { card(for: id)?.name }
+
+    func card(for id: String) -> WalletCachedCard? {
+        (payments + memberships).first(where: { $0.id == id })
     }
 
     func payment(forActivationID id: String) -> WalletCachedCard? {

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CARD_ID = re.compile(r"[-A-Za-z0-9_+=]{20,64}\Z")
+SUFFIX = re.compile(r"[A-Za-z0-9]{2,6}\Z")
 
 
 def decode_archive(data: bytes):
@@ -46,12 +47,15 @@ def read_limited(path: Path) -> bytes:
     return data
 
 
-def card(identifier, name, source, activation_id=None):
+def card(identifier, name, source, activation_id=None, suffix=None, suffix_kind=None):
     if not isinstance(identifier, str) or not CARD_ID.fullmatch(identifier):
         return None
     result = {"id": identifier, "name": name.strip()[:200] if isinstance(name, str) and name.strip() else "Unnamed card", "source": source}
     if isinstance(activation_id, str) and re.fullmatch(r"[A-Fa-f0-9]{10,64}", activation_id):
         result["activationID"] = activation_id.upper()
+    if isinstance(suffix, str) and SUFFIX.fullmatch(suffix.strip()):
+        result["suffix"] = suffix.strip()
+        result["suffixKind"] = suffix_kind
     return result
 
 
@@ -66,7 +70,16 @@ def unique_cards(rows):
 def payment_card(data):
     application = data.get("primaryPaymentApplication")
     activation_id = application.get("applicationIdentifier") if isinstance(application, dict) else None
-    return card(data.get("passID"), data.get("displayName") or data.get("organizationName"), "payment", activation_id)
+    # Several cards can share one product name ("Platinum Card(R)"), so the
+    # account suffix is the only thing that tells those rows apart. It is the
+    # real card's last digits; fall back to the device token suffix, which is
+    # still stable per card, when Wallet has no account suffix (Apple Cash,
+    # transit, ID passes).
+    suffix, suffix_kind = data.get("primaryAccountNumberSuffix"), "account"
+    if not isinstance(suffix, str) or not suffix.strip():
+        suffix = application.get("DPANSuffix") if isinstance(application, dict) else None
+        suffix_kind = "device"
+    return card(data.get("passID"), data.get("displayName") or data.get("organizationName"), "payment", activation_id, suffix, suffix_kind)
 
 
 def build_catalog(root: Path, confirmed_ids: list[str], product: str) -> dict:

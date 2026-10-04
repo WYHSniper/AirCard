@@ -67,8 +67,38 @@ struct CardItem: Identifiable, Hashable {
     /// SHA-256 of the assigned skin file; used to skip cards whose skin is already on the device.
     private(set) var skinSignature: String? = nil
     var displayName: String? = nil
+    /// Account (or device-token) ending from the Mac's Wallet cache. Product
+    /// names repeat across accounts, so this is what tells two cards of the
+    /// same type apart in the list.
+    var accountSuffix: String? = nil
+    var suffixKind: String? = nil
     var confirmed: Bool = false
-    
+
+    init(id: String, isSelected: Bool = true, customImageURL: URL? = nil, customImage: NSImage? = nil, displayName: String? = nil, confirmed: Bool = false) {
+        self.id = id
+        self.isSelected = isSelected
+        self.customImageURL = customImageURL
+        self.customImage = customImage
+        self.skinSignature = customImageURL.flatMap(CardItem.signature(of:))
+        self.displayName = displayName
+        self.confirmed = confirmed
+    }
+
+    init(id: String, isSelected: Bool = true, cached: WalletCachedCard?, confirmed: Bool = false) {
+        self.init(id: id, isSelected: isSelected, displayName: cached?.name, confirmed: confirmed)
+        self.accountSuffix = cached?.suffix
+        self.suffixKind = cached?.suffixKind
+    }
+
+    mutating func adopt(_ cached: WalletCachedCard?) {
+        displayName = cached?.name
+        accountSuffix = cached?.suffix
+        suffixKind = cached?.suffixKind
+    }
+
+    /// Shown under the product name, e.g. "•••• 1234".
+    var suffixLabel: String? { CardSuffix.label(accountSuffix) }
+
     static func signature(of url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -79,7 +109,7 @@ struct CardItem: Identifiable, Hashable {
     }
     
     static func == (lhs: CardItem, rhs: CardItem) -> Bool {
-        lhs.id == rhs.id && lhs.isSelected == rhs.isSelected && lhs.customImageURL == rhs.customImageURL && lhs.displayName == rhs.displayName && lhs.confirmed == rhs.confirmed
+        lhs.id == rhs.id && lhs.isSelected == rhs.isSelected && lhs.customImageURL == rhs.customImageURL && lhs.displayName == rhs.displayName && lhs.accountSuffix == rhs.accountSuffix && lhs.confirmed == rhs.confirmed
     }
 }
 
@@ -820,8 +850,10 @@ class AppViewModel: ObservableObject {
                 self.walletCatalog = result
                 self.isReadingWalletCache = false
                 for index in self.cards.indices {
-                    let name = result.name(for: self.cards[index].id)
-                    if self.cards[index].displayName != name { self.cards[index].displayName = name }
+                    let cached = result.card(for: self.cards[index].id)
+                    if self.cards[index].displayName != cached?.name || self.cards[index].accountSuffix != cached?.suffix {
+                        self.cards[index].adopt(cached)
+                    }
                 }
                 if self.isScanningCards {
                     self.reconcilePendingPaymentActivations()
@@ -836,7 +868,7 @@ class AppViewModel: ObservableObject {
         if let index = cards.firstIndex(where: { $0.id == id }) {
             if !cards[index].confirmed { cards[index].confirmed = true }
         } else {
-            cards.append(CardItem(id: id, displayName: walletCatalog.name(for: id), confirmed: true))
+            cards.append(CardItem(id: id, cached: walletCatalog.card(for: id), confirmed: true))
             NSSound(named: "Glass")?.play()
         }
         scannerMessage = "Detected \(currentScanIDs.count) distinct card(s) this scan. Open any missing card in Wallet to check it."
@@ -858,7 +890,7 @@ class AppViewModel: ObservableObject {
         if let index = cards.firstIndex(where: { $0.id == id }) {
             if !cards[index].confirmed { cards[index].confirmed = true }
         } else {
-            cards.append(CardItem(id: id, displayName: walletCatalog.name(for: id), confirmed: true))
+            cards.append(CardItem(id: id, cached: walletCatalog.card(for: id), confirmed: true))
             NSSound(named: "Glass")?.play()
         }
         scannerMessage = "Verified \(currentVerifiedCardIDs.count) card(s) from this iPhone's current Wallet activity."
@@ -880,9 +912,10 @@ class AppViewModel: ObservableObject {
         pendingActivationIDs.remove(normalizedID)
         recordScannedCard(card.id)
         if let index = cards.firstIndex(where: { $0.id == card.id }) {
-            cards[index].displayName = card.name
+            cards[index].adopt(card)
         }
-        scannerMessage = "Detected active card: \(card.name). Open the next card when ready."
+        let described = [card.name, CardSuffix.label(card.suffix)].compactMap { $0 }.joined(separator: " ")
+        scannerMessage = "Detected active card: \(described). Open the next card when ready."
         return true
     }
 
@@ -912,7 +945,7 @@ class AppViewModel: ObservableObject {
         for comp in components {
             let clean = comp.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "."))
             if clean.count >= 16 && clean.count <= 64 && !cards.contains(where: { $0.id == clean }) {
-                cards.append(CardItem(id: clean, isSelected: true, displayName: walletCatalog.name(for: clean)))
+                cards.append(CardItem(id: clean, isSelected: true, cached: walletCatalog.card(for: clean)))
                 addedCount += 1
                 log("Added card: \(clean)")
             }
@@ -2022,6 +2055,17 @@ struct WalletCardView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(2)
                     .help(card.displayName ?? "No matching name in the Mac cache. The card ID is preserved.")
+                if let suffix = card.suffixLabel {
+                    Text(suffix)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .help(CardSuffix.help(card.suffixKind))
+                } else if card.displayName != nil {
+                    Text("No card ending in the Mac cache")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("Wallet did not expose an ending for this card. Use the ID below to tell it apart.")
+                }
                 Text("Matched to this iPhone in the current scan")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -2318,7 +2362,7 @@ struct ContentView: View {
                     Text("AirCard")
                         .font(.title2)
                         .fontWeight(.bold)
-                    Text("v1.2.5")
+                    Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.5"))
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)

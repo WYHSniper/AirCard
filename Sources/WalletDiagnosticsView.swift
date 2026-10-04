@@ -100,6 +100,11 @@ struct WalletDiagnosticsView: View {
         HStack {
             Image(systemName: "questionmark.circle").foregroundStyle(.orange)
             Text(card.name)
+            if let suffix = CardSuffix.label(card.suffix) {
+                Text(suffix)
+                    .font(.system(.caption, design: .monospaced))
+                    .help(CardSuffix.help(card.suffixKind))
+            }
             Text("…" + card.id.suffix(6))
                 .font(.system(.caption2, design: .monospaced)).foregroundStyle(.secondary)
             Spacer()

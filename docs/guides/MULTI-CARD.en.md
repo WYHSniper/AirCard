@@ -15,6 +15,8 @@ AirCard saves **internal card identifiers**, not payment card numbers or a live 
 | Assigned images, image paths, and previews | Not saved; assign them again. Keep the source files on the Mac. |
 | Association with a specific iPhone | Not grouped by device; the old list is not an inventory of a newly connected phone. |
 
+Each row shows the product name and the card ending (`•••• 1234`) read from the Mac's Wallet cache, so several cards of the same product — five Platinum cards, for example — are told apart by the ending, not by position. The ending is the account's last digits; where Wallet exposes none, AirCard falls back to the device token ending, which is still unique per card, and the tooltip on the ending says which one you are looking at. A card with no ending at all (Apple Cash, transit passes, ID passes) says so and is identified by its card ID instead. Endings are read fresh from the cache each session and are never written to the saved card list.
+
 **Card #1 / #2** are list positions, not bank names, payment card numbers, or reliable Wallet ordering. Do not infer identity from the number alone. During scanning, select one card at a time and watch for new entries; if the mapping is uncertain, resolve it before flashing. Do not copy identifiers from someone else's screenshot into **Add Manually**.
 
 The code saves identifiers in `UserDefaults` and `~/.aircard_cards.json`, and also reads the legacy `~/.lumicards_cards.json`. These files do not back up original artwork. If old entries return after clearing the list and restarting, consider legacy record import rather than assuming a fresh phone scan succeeded.

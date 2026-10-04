@@ -73,6 +73,33 @@ class WalletCatalogTests(unittest.TestCase):
         self.assertEqual(result['payments'], [])
         self.assertTrue(result['warnings'])
 
+    def test_same_named_cards_are_separated_by_account_suffix(self):
+        instruments = [
+            {'passID': A, 'displayName': 'Platinum Card', 'primaryAccountNumberSuffix': '1234',
+             'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000001', 'DPANSuffix': '9999'}},
+            {'passID': B, 'displayName': 'Platinum Card', 'primaryAccountNumberSuffix': '5678',
+             'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000002', 'DPANSuffix': '8888'}},
+        ]
+        write_archive(self.root, [{'modelIdentifier': 'iPhone16,1', 'remotePaymentInstruments': instruments}])
+        payments = build_catalog(self.root, [A], 'iPhone16,1')['payments']
+        self.assertEqual([c['name'] for c in payments], ['Platinum Card', 'Platinum Card'])
+        self.assertEqual([c['suffix'] for c in payments], ['1234', '5678'])
+        self.assertEqual({c['suffixKind'] for c in payments}, {'account'})
+
+    def test_device_token_suffix_is_used_when_no_account_suffix(self):
+        instruments = [{'passID': A, 'displayName': 'Transit',
+                        'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000001', 'DPANSuffix': '4321'}}]
+        write_archive(self.root, [{'modelIdentifier': 'iPhone16,1', 'remotePaymentInstruments': instruments}])
+        card = build_catalog(self.root, [A], 'iPhone16,1')['payments'][0]
+        self.assertEqual(card['suffix'], '4321')
+        self.assertEqual(card['suffixKind'], 'device')
+
+    def test_masked_placeholder_suffix_is_not_reported_as_an_ending(self):
+        instruments = [{'passID': A, 'displayName': 'State ID', 'primaryAccountNumberSuffix': '',
+                        'primaryPaymentApplication': {'applicationIdentifier': 'A00000000000000001', 'DPANSuffix': '****'}}]
+        write_archive(self.root, [{'modelIdentifier': 'iPhone16,1', 'remotePaymentInstruments': instruments}])
+        self.assertNotIn('suffix', build_catalog(self.root, [A], 'iPhone16,1')['payments'][0])
+
     def test_corrupt_cache_keeps_diagnostics_available(self):
         (self.root / 'RemoteDevices.archive').write_bytes(b'bad plist')
         result = build_catalog(self.root, [A], 'iPhone16,1')

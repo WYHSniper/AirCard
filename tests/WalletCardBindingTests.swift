@@ -52,6 +52,28 @@ struct WalletCardBindingTests {
         storage.append(CardItem(id: "new-scan"))
         secondRow.isSelected.wrappedValue = false
         precondition(storage[0].id == "new-scan" && storage[0].isSelected)
-        print("PASS: retained rows, single deletion, clear all, late row creation, delayed image writes, scanner append")
+        // Two cards of the same product must stay distinguishable by ending.
+        let catalog = WalletCatalog(
+            paymentStatus: "matched",
+            payments: [
+                WalletCachedCard(id: "plat-a", name: "Platinum Card", source: "payment", suffix: "1234", suffixKind: "account"),
+                WalletCachedCard(id: "plat-b", name: "Platinum Card", source: "payment", suffix: "5678", suffixKind: "account"),
+                WalletCachedCard(id: "cash", name: "Apple Cash", source: "payment"),
+            ],
+            memberships: [], warnings: [], cacheUpdatedAt: nil)
+        var platA = CardItem(id: "plat-a", cached: catalog.card(for: "plat-a"), confirmed: true)
+        let platB = CardItem(id: "plat-b", cached: catalog.card(for: "plat-b"), confirmed: true)
+        precondition(platA.displayName == platB.displayName)
+        precondition(platA.suffixLabel == "•••• 1234" && platB.suffixLabel == "•••• 5678",
+                     "Same-named cards must show different endings")
+        precondition(platA != platB, "Rows differing only by ending must not compare equal")
+        precondition(CardItem(id: "cash", cached: catalog.card(for: "cash")).suffixLabel == nil)
+        precondition(CardSuffix.help("device") != CardSuffix.help("account"))
+
+        // A later cache read re-points a row at the right account.
+        platA.adopt(catalog.card(for: "plat-b"))
+        precondition(platA.suffixLabel == "•••• 5678" && platA.id == "plat-a")
+
+        print("PASS: retained rows, single deletion, clear all, late row creation, delayed image writes, scanner append, same-name card endings")
     }
 }
