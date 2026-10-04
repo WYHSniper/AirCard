@@ -2074,14 +2074,14 @@ struct WalletCardView: View {
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(.primary)
                         .help(CardSuffix.help(card.suffixKind))
-                    if isAmbiguous {
-                        ForEach(CardSuffix.tiebreakers(card), id: \.self) { line in
-                            Text(line)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.orange)
-                        }
-                        .help("Another card shows the same name and ending. These come from the Wallet cache and differ per card.")
+                    ForEach(CardSuffix.tiebreakers(card), id: \.self) { line in
+                        Text(line)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(isAmbiguous ? .orange : .secondary)
                     }
+                    .help(isAmbiguous
+                          ? "Another card shows the same name and card ending. These two differ per card, so use them to tell the rows apart."
+                          : "Device Account Number ending and the date this card was added to Wallet.")
                 } else if card.displayName != nil {
                     Text("No card ending in the Mac cache")
                         .font(.caption2)

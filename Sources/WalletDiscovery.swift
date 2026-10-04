@@ -38,9 +38,10 @@ enum CardSuffix {
                          : "Card number ending, from this Mac's Wallet cache."
     }
 
-    /// Extra lines for rows that still read identically after name + ending.
+    /// Second and third identifiers, shown under the card ending on every row.
     /// Two cards can legitimately share a product name and the last four of the
-    /// card number; the device ending and the add date are independent of both.
+    /// card number; the device ending and the add date are independent of both,
+    /// and the row turns these orange when such a collision actually happens.
     static func tiebreakers(_ card: CardItem) -> [String] {
         var lines: [String] = []
         if let device = card.deviceSuffix, device != card.accountSuffix {
